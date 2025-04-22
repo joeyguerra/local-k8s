@@ -45,7 +45,7 @@ spec:
           valueFrom:
             secretKeyRef:
               name: cloudflared-token
-              key: token
+              key: CF_TOKEN
         livenessProbe:
           httpGet:
           # Cloudflared has a /ready endpoint which returns 200 if and only if
