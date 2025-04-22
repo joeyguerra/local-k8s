@@ -1,3 +1,15 @@
+# Run a Local Kubenernetes Cluster
+
+I run (k3ds)[https://k3d.io/stable/] locally on my Mac Mini and serve up public traffic via my CloudFlare account using `cloudflared`.
+
+- Create a cluster
+- Setup zero trust in CloudFlare
+- Configure a tunnel to point a locally running webserve
+    e.g. http://jbot-website-service:8080
+- Deploy (cloudlared-deployment.yml)[cloudflared-deployment.yml]
+- Deploy some apps
+- Do a bunch of POCs to test out your ideas.
+
 # Create a k3d cluster
 
 ```sh
