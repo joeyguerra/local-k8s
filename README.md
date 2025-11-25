@@ -34,9 +34,9 @@ k3d image import cloudflare/cloudflared:latest -c local
 ```
 
 ```sh
-kubectl create secret generic cloudflared-token --from-env-file=.env
+kubectl create secret generic cloudflared-token --from-env-file=.env -n default
 kubectl apply -f cloudflared-deployment.yml
-kubectl create secrete generic discord-token --from-literal=HUBOT_DISCORD_TOKEN='<value>'
+kubectl create secret generic discord-token --from-literal=HUBOT_DISCORD_TOKEN='<value>' -n default
 kubectl create secret generic cookie-secret --from-literal=COOKIE_SECRET='<value>' -n default
 KUBE_CONTEXT=k3d-local KUBE_CLUSTER=local ./deploy-all-apps.sh
 ```
