@@ -39,7 +39,7 @@ spec:
         - $(CF_TOKEN)
         image: cloudflare/cloudflared:latest
         name: cloudflared
-        imagePullPolicy: Never
+        imagePullPolicy: IfNotPresent
         env:
         - name: CF_TOKEN
           valueFrom:

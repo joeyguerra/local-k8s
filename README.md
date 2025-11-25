@@ -13,7 +13,7 @@ I run [k3ds](https://k3d.io/stable/) locally on my Mac Mini and serve up public 
 # Create a k3d cluster
 
 ```sh
-k3d cluster create local --k3s-arg="--disable=traefik@server:0"
+k3d cluster create local-canary --k3s-arg="--disable=traefik@server:0" --image rancher/k3s
 ```
 
 # Detele a k3d cluster
@@ -34,7 +34,17 @@ k3d image import cloudflare/cloudflared:latest -c local
 ```
 
 ```sh
-kubectl create secret generic cloudflared-token --
-from-env-file=.env
+kubectl create secret generic cloudflared-token --from-env-file=.env
 kubectl apply -f cloudflared-deployment.yml
+kubectl create secrete generic discord-token --from-literal=HUBOT_DISCORD_TOKEN='<value>'
+kubectl create secret generic cookie-secret --from-literal=COOKIE_SECRET='<value>' -n default
+KUBE_CONTEXT=k3d-local KUBE_CLUSTER=local ./deploy-all-apps.sh
 ```
+
+# Upgrade K3d
+
+```sh
+brew upgrade k3d
+kubectl get all --all-namespaces -o yaml
+kubectl get all --all-namespaces -o yaml > backup.yaml
+ ```
