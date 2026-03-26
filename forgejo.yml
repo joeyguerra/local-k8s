@@ -1,0 +1,71 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: forgejo-data-pvc
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: forgejo-deployment
+  namespace: default
+  labels:
+    app: forgejo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: forgejo
+  template:
+    metadata:
+      labels:
+        app: forgejo
+    spec:
+      containers:
+        - name: forgejo
+          image: codeberg.org/forgejo/forgejo:14.0.3
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: USER_UID
+              value: '1000'
+            - name: USER_GID
+              value: '1000'
+          ports:
+            - name: http
+              containerPort: 3000
+            - name: ssh
+              containerPort: 22
+          volumeMounts:
+            - name: forgejo-data
+              mountPath: /data
+      volumes:
+        - name: forgejo-data
+          persistentVolumeClaim:
+            claimName: forgejo-data-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: forgejo-service
+  namespace: default
+spec:
+  selector:
+    app: forgejo
+  type: NodePort
+  ports:
+    - name: http
+      protocol: TCP
+      port: 3000
+      targetPort: 3000
+      nodePort: 30000
+    - name: ssh
+      protocol: TCP
+      port: 22
+      targetPort: 22
+      nodePort: 30022
