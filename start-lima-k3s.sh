@@ -29,6 +29,13 @@ log "Current VM status: $CURRENT_STATUS"
 
 if [ "$CURRENT_STATUS" = "Running" ]; then
   log "VM already running — skipping start."
+elif [ "$CURRENT_STATUS" = "Broken" ]; then
+  log "VM is in Broken state — force-stopping to clear stale state..."
+  limactl stop --force "$LIMA_INSTANCE" 2>/dev/null || true
+  sleep 2
+  log "Starting Lima VM '$LIMA_INSTANCE'..."
+  limactl start "$LIMA_INSTANCE" --tty=false
+  log "Lima start command returned."
 else
   log "Starting Lima VM '$LIMA_INSTANCE'..."
   limactl start "$LIMA_INSTANCE" --tty=false
