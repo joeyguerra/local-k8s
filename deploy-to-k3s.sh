@@ -1,16 +1,12 @@
 #!/usr/bin/env bash
 # deploy-to-k3s.sh
 #
-# One-time migration script: deploys all apps from k3d to Lima k3s.
-# Run this after setup-k3s.sh has completed.
+# Deploys all apps to Lima k3s. Run this after setup-k3s.sh has completed.
 #
 # What it does:
-#   1. Creates a fake 'k3d' shim on PATH so existing app build scripts
-#      (docker-build-k3d.sh, docker-build.sh) import images into k3s
-#      instead of k3d — no changes to app repos required.
-#   2. Applies the Cloudflare tunnel secret and deployment.
-#   3. Prompts for any other secrets not already present in k3s.
-#   4. Runs 'npm run push' for each app with the k3s context.
+#   1. Applies the Cloudflare tunnel secret and deployment.
+#   2. Prompts for any other secrets not already present in k3s.
+#   3. Runs 'npm run push' for each app with the k3s context.
 
 set -euo pipefail
 
@@ -23,7 +19,6 @@ warn() { echo "⚠ $*"; }
 fail() { echo "✗ $*" >&2; exit 1; }
 
 export KUBE_CONTEXT
-export KUBE_CLUSTER="$LIMA_INSTANCE"  # used by app build scripts for the -c flag
 
 # ── Preflight ─────────────────────────────────────────────────────────────────
 
@@ -33,39 +28,6 @@ fi
 
 log "Connected to k3s cluster:"
 kubectl --context="$KUBE_CONTEXT" get nodes
-echo ""
-
-# ── Fake k3d shim ─────────────────────────────────────────────────────────────
-# App build scripts call: k3d image import <image> -c <cluster>
-# The shim intercepts this and imports into Lima k3s instead.
-# Any other k3d sub-commands (cluster, registry, etc.) are ignored safely.
-
-SHIM_DIR=$(mktemp -d /tmp/k3d-shim-XXXXXX)
-trap 'rm -rf "$SHIM_DIR"' EXIT
-
-cat > "$SHIM_DIR/k3d" << 'SHIM'
-#!/usr/bin/env bash
-# Fake k3d: only handles 'k3d image import <image> -c <cluster>'
-if [[ "${1:-}" == "image" && "${2:-}" == "import" ]]; then
-  IMAGE="${3:-}"
-  if [ -z "$IMAGE" ]; then
-    echo "k3d-shim: no image specified" >&2
-    exit 1
-  fi
-  LIMA_INSTANCE="${LIMA_INSTANCE:-k3s}"
-  echo "k3d-shim: importing $IMAGE → Lima k3s ($LIMA_INSTANCE)"
-  docker save "$IMAGE" | limactl shell "$LIMA_INSTANCE" -- sudo k3s ctr images import -
-  echo "k3d-shim: ✓ $IMAGE imported"
-  exit 0
-fi
-# Any other k3d command: log and succeed silently so scripts don't break
-echo "k3d-shim: ignoring: k3d $*" >&2
-exit 0
-SHIM
-chmod +x "$SHIM_DIR/k3d"
-export PATH="$SHIM_DIR:$PATH"
-
-log "k3d shim installed — image imports will go to Lima k3s."
 echo ""
 
 # ── Cloudflare tunnel ─────────────────────────────────────────────────────────
@@ -163,7 +125,7 @@ done
 # ── Summary ───────────────────────────────────────────────────────────────────
 
 echo ""
-log "=== Migration complete ==="
+log "=== Deploy complete ==="
 echo ""
 
 if [ ${#FAILED[@]} -gt 0 ]; then
@@ -176,7 +138,3 @@ fi
 
 log "Verify everything is running:"
 echo "  kubectl --context=$KUBE_CONTEXT get pods -A"
-echo ""
-log "Once confirmed, you can remove k3d:"
-echo "  k3d cluster delete local"
-echo "  brew uninstall k3d"
