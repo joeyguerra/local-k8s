@@ -113,7 +113,8 @@ for app in "${apps[@]}"; do
   log "Deploying $app..."
   pushd "$app_path" >/dev/null
 
-  if npm install && npm run push; then
+  if [ -f bun.lock ] || [ -f bun.lockb ]; then PKG=bun; else PKG=npm; fi
+  if $PKG install && $PKG run push; then
     log "✓ $app deployed."
   else
     warn "✗ $app failed — continuing with remaining apps."
