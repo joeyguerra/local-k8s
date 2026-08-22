@@ -14,12 +14,8 @@ disk: "40GiB"
 timeoutSeconds: 1200
 
 images:
-  # Apple Silicon (M-series Mac mini)
   - location: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-arm64.img"
     arch: "aarch64"
-  # Intel Mac mini
-  - location: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
-    arch: "x86_64"
 
 provision:
   - mode: system
@@ -57,7 +53,5 @@ portForwards:
     proto: "tcp"
 
 mounts:
-  - location: "~"
-    writable: false
   - location: "/tmp/lima"
     writable: true

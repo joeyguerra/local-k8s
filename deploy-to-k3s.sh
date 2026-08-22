@@ -94,7 +94,9 @@ apps=(
   "../joeyguerra/coppellfornewtech"
   "../fieldmappings/website"
   "../joeyguerra/joeyguerra"
+  "../joeyguerra/joey-agent"
   "../joeyguerra/lis7s"
+  "../joeyguerra/invoices"
 	"../logprojector/website"
 	"../devchitchat/oplog"
 )

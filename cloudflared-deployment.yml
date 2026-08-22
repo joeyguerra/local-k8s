@@ -37,9 +37,9 @@ spec:
         args:
         - --token
         - $(CF_TOKEN)
-        image: cloudflare/cloudflared:latest
+        image: cloudflare/cloudflared:1910-733bfb939963
         name: cloudflared
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Always
         env:
         - name: CF_TOKEN
           valueFrom:
