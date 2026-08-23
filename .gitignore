@@ -136,3 +136,4 @@ data/backups/
 certs
 charts/**/values.local.yaml
 .claude
+infra
