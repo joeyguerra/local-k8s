@@ -14,6 +14,8 @@ export interface AppManifest {
   pvcName?: string;
   /** Raw YAML string of the entire manifest */
   raw: string;
+  /** Absolute path to the manifest file on disk */
+  manifestPath: string;
 }
 
 /**
@@ -36,9 +38,9 @@ export function findManifestPath(cwd: string = process.cwd()): string {
 }
 
 export async function loadManifest(cwd: string = process.cwd(), vars: Record<string, string> = {}): Promise<AppManifest> {
-  const path = findManifestPath(cwd);
-  const raw  = await Bun.file(path).text();
-  return parseManifest(substituteVars(raw, vars));
+  const manifestPath = findManifestPath(cwd);
+  const raw          = await Bun.file(manifestPath).text();
+  return { ...parseManifest(substituteVars(raw, vars)), manifestPath };
 }
 
 /**
@@ -49,7 +51,7 @@ export function substituteVars(raw: string, vars: Record<string, string>): strin
   return raw.replace(/\{\{\s*(\w+)\s*\}\}/g, (match, key) => vars[key] ?? match);
 }
 
-export function parseManifest(raw: string): AppManifest {
+export function parseManifest(raw: string): Omit<AppManifest, "manifestPath"> {
   const docs = parseAllDocuments(raw)
     .map(d => d.toJS() as Record<string, unknown>)
     .filter(Boolean);

@@ -56,7 +56,7 @@ App  (run from an app directory that has a deployment.yaml):
 
 Convention:
   deployment.yaml        standard K8s manifest — source of truth
-  values.yaml            CLI config (context, namespace, lima, backup)
-  values.local.yaml      local overrides (gitignored, deep-merged over values.yaml)
+  infra.yaml             CLI config (context, namespace, lima, backup)
+  infra.local.yaml       local overrides (gitignored, deep-merged over infra.yaml)
 `);
 }

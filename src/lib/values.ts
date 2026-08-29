@@ -22,17 +22,17 @@ const DEFAULTS: Values = {
 };
 
 /**
- * Load values.yaml and values.local.yaml from `dir`, deep-merge them over
+ * Load infra.yaml and infra.local.yaml from `dir`, deep-merge them over
  * the built-in defaults, and return a fully-resolved Values object.
  *
- * values.local.yaml is gitignored and takes precedence over values.yaml.
+ * infra.local.yaml is gitignored and takes precedence over infra.yaml.
  */
 export async function loadValues(dir: string = process.cwd()): Promise<Values> {
   let base: Partial<Values> = {};
   let local: Partial<Values> = {};
 
-  const basePath  = `${dir}/values.yaml`;
-  const localPath = `${dir}/values.local.yaml`;
+  const basePath  = `${dir}/infra.yaml`;
+  const localPath = `${dir}/infra.local.yaml`;
 
   if (existsSync(basePath)) {
     const raw = await Bun.file(basePath).text();

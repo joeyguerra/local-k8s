@@ -44,10 +44,9 @@ async function push(): Promise<void> {
   await buildImage(app.imageBase, tag);
   await importToK3s(app.imageBase, tag, values.lima);
 
-  // Write the tag-updated manifest back to deployment.yaml so the file stays
-  // in sync (mirrors what docker-build-k3s.sh did with sed in-place).
-  const manifestPath = `${process.cwd()}/deployment.yaml`;
-  await Bun.write(manifestPath, updated);
+  // Write the tag-updated manifest back to wherever it was loaded from
+  // (deployment.yaml or k8s/deployment.yaml) so the file stays in sync.
+  await Bun.write(app.manifestPath, updated);
 
   await kc.apply(updated);
 
