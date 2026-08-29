@@ -35,10 +35,18 @@ export function findManifestPath(cwd: string = process.cwd()): string {
   );
 }
 
-export async function loadManifest(cwd: string = process.cwd()): Promise<AppManifest> {
+export async function loadManifest(cwd: string = process.cwd(), vars: Record<string, string> = {}): Promise<AppManifest> {
   const path = findManifestPath(cwd);
   const raw  = await Bun.file(path).text();
-  return parseManifest(raw);
+  return parseManifest(substituteVars(raw, vars));
+}
+
+/**
+ * Replace {{ key }} placeholders in the manifest with values from `vars`.
+ * Unresolved placeholders are left as-is so kubectl surfaces the error clearly.
+ */
+export function substituteVars(raw: string, vars: Record<string, string>): string {
+  return raw.replace(/\{\{\s*(\w+)\s*\}\}/g, (match, key) => vars[key] ?? match);
 }
 
 export function parseManifest(raw: string): AppManifest {

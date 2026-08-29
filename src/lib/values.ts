@@ -9,6 +9,8 @@ export interface Values {
     db: string;       // path to SQLite file inside the container
     hostPath: string; // host directory to write backups into
   };
+  /** Arbitrary string variables substituted into deployment.yaml as {{ key }} */
+  vars: Record<string, string>;
 }
 
 const DEFAULTS: Values = {
@@ -16,6 +18,7 @@ const DEFAULTS: Values = {
   namespace: "default",
   lima: "k3s",
   backup: { db: "", hostPath: "" },
+  vars: {},
 };
 
 /**

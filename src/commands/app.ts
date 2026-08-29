@@ -26,7 +26,7 @@ export async function run(command: string, _args: string[]): Promise<void> {
 async function loadContext() {
   const cwd    = process.cwd();
   const values = await loadValues(cwd);
-  const app    = await loadManifest(cwd);
+  const app    = await loadManifest(cwd, values.vars);
   const kc     = kubectl(values.context, values.namespace);
   return { cwd, values, app, kc };
 }
@@ -50,6 +50,12 @@ async function push(): Promise<void> {
   await Bun.write(manifestPath, updated);
 
   await kc.apply(updated);
+
+  // Always restart — even if the manifest was unchanged, a new image was
+  // imported under the same tag and Kubernetes won't pull it automatically.
+  console.log(`[push] Restarting deployment/${app.name}...`);
+  await kc.rolloutRestart(app.name);
+
   console.log(`\n[push] ${app.name} deployed (${app.imageBase}:${tag})`);
 }
 

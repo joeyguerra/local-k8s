@@ -7,20 +7,17 @@ const DOCKER_HOST =
 /**
  * Determine the image tag to use for this build.
  *
- * Logic mirrors docker-build-k3s.sh:
- *   - Use the current git short SHA.
- *   - If the manifest already has that SHA as its tag (i.e. nothing changed
- *     in git since the last deploy), fall back to a Unix timestamp so k3s
- *     always sees a new image and re-pulls.
+ * Uses the current git short SHA. If the working tree has uncommitted changes,
+ * appends a short timestamp so every push produces a unique tag even without a
+ * new commit. This keeps deployment.yaml in sync with what's actually running.
  */
-export async function resolveTag(imageBase: string, manifestRaw: string): Promise<string> {
+export async function resolveTag(_imageBase: string, _manifestRaw: string): Promise<string> {
   const head = (await Bun.$`git rev-parse --short HEAD`.text()).trim();
 
-  const escapedBase = imageBase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = manifestRaw.match(new RegExp(`${escapedBase}:([a-zA-Z0-9._-]+)`));
-  const deployed = match?.[1];
+  // Detect a dirty working tree (staged or unstaged changes)
+  const dirty = (await Bun.$`git status --porcelain`.text()).trim();
 
-  return head !== deployed ? head : String(Date.now());
+  return dirty ? `${head}-${Date.now()}` : head;
 }
 
 /**

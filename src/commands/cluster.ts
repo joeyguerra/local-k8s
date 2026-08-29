@@ -11,7 +11,14 @@ import { mergeKubeconfig } from "../lib/kubeconfig.ts";
 import { installLaunchDaemon } from "../lib/launchdaemon.ts";
 import { kubectl } from "../lib/kubectl.ts";
 
-const LIMA_YAML = new URL("../../k3s-lima.yaml", import.meta.url).pathname;
+import { dirname, resolve } from "node:path";
+
+// process.argv[0] is the actual binary path on disk in both compiled and dev
+// mode. import.meta.url and Bun.main both resolve into /$bunfs/root/ when
+// compiled, making them unusable for locating sibling files on disk.
+const REPO_ROOT = dirname(resolve(process.argv[0]));
+const LIMA_YAML = resolve(REPO_ROOT, "k3s-lima.yaml");
+const RBAC_DIR  = resolve(REPO_ROOT, "rbac");
 
 export async function run(subcommand: string, _args: string[]): Promise<void> {
   switch (subcommand) {
@@ -20,9 +27,10 @@ export async function run(subcommand: string, _args: string[]): Promise<void> {
     case "stop":    return stop();
     case "status":  return status();
     case "shell":   return openShell(LIMA_INSTANCE);
+    case "rbac":    return applyRbac();
     default:
       console.error(`Unknown subcommand: infra cluster ${subcommand ?? ""}`);
-      console.error("Available: setup | start | stop | status | shell");
+      console.error("Available: setup | start | stop | status | shell | rbac");
       process.exit(1);
   }
 }
@@ -56,7 +64,10 @@ async function setup(): Promise<void> {
   // 4. Merge kubeconfig
   await mergeKubeconfig(LIMA_INSTANCE, KUBE_CONTEXT);
 
-  // 5. Install LaunchDaemon so k3s starts at every boot
+  // 5. Apply cluster-wide RBAC
+  await applyRbac();
+
+  // 6. Install LaunchDaemon so k3s starts at every boot
   await installLaunchDaemon();
 
   console.log("\n=== Setup complete ===");
@@ -109,6 +120,16 @@ async function status(): Promise<void> {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// infra cluster rbac — apply cluster-wide RBAC manifests from rbac/
+// ---------------------------------------------------------------------------
+
+async function applyRbac(): Promise<void> {
+  console.log("[rbac] Applying cluster-wide RBAC from rbac/...");
+  await Bun.$`kubectl --context=${KUBE_CONTEXT} apply -f ${RBAC_DIR}`;
+  console.log("[rbac] Done");
+}
 
 async function ensureBrew(): Promise<void> {
   const r = await Bun.$`which brew`.quiet().nothrow();

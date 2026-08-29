@@ -39,6 +39,7 @@ Cluster:
   infra cluster stop     gracefully stop Lima VM
   infra cluster status   show VM status, nodes, and all pods
   infra cluster shell    open an interactive shell inside the Lima VM
+  infra cluster rbac     apply cluster-wide RBAC manifests from rbac/
 
 Cloudflare:
   infra cf setup         deploy cloudflared tunnel to the cluster

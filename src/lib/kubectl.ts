@@ -68,5 +68,10 @@ export function kubectl(context: string, namespace: string) {
     async getAllPods(): Promise<void> {
       await Bun.$`kubectl --context=${context} get pods -A`;
     },
+
+    async rolloutRestart(app: string): Promise<void> {
+      await Bun.$`kubectl ${flags} rollout restart deployment/${app}`;
+      await Bun.$`kubectl ${flags} rollout status deployment/${app} --timeout=120s`;
+    },
   };
 }
