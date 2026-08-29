@@ -91,7 +91,7 @@ export function parseManifest(raw: string): AppManifest {
 export function updateImageTag(raw: string, imageBase: string, tag: string): string {
   const escapedBase = imageBase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return raw.replace(
-    new RegExp(`(${escapedBase}:)[a-zA-Z0-9._-]+`),
+    new RegExp(`(${escapedBase}:)[a-zA-Z0-9._-]+`, "g"),
     `$1${tag}`
   );
 }

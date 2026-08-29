@@ -44,7 +44,7 @@ export async function loadValues(dir: string = process.cwd()): Promise<Values> {
     local = (parse(raw) as Partial<Values>) ?? {};
   }
 
-  return deepMerge(deepMerge(DEFAULTS, base), local) as Values;
+  return deepMerge(deepMerge(DEFAULTS as unknown as Record<string, unknown>, base), local) as unknown as Values;
 }
 
 function deepMerge(target: Record<string, unknown>, source: Record<string, unknown>): Record<string, unknown> {

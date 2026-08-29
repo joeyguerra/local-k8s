@@ -25,7 +25,7 @@ export function kubectl(context: string, namespace: string) {
     },
 
     async logs(app: string): Promise<void> {
-      await Bun.$`kubectl ${flags} logs -l app=${app} --tail=100 -f`;
+      await Bun.$`kubectl ${flags} logs -l app=${app} --container=${app} --tail=100 -f`;
     },
 
     async getPodName(app: string): Promise<string> {
