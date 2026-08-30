@@ -12,8 +12,10 @@ export interface AppManifest {
   port: number;
   /** claimName of the first PVC volume, if any */
   pvcName?: string;
-  /** Raw YAML string of the entire manifest */
+  /** Raw YAML string with vars substituted — used for kubectl apply */
   raw: string;
+  /** Original template as read from disk, {{ vars }} intact — used for disk write-back */
+  template: string;
   /** Absolute path to the manifest file on disk */
   manifestPath: string;
 }
@@ -39,8 +41,8 @@ export function findManifestPath(cwd: string = process.cwd()): string {
 
 export async function loadManifest(cwd: string = process.cwd(), vars: Record<string, string> = {}): Promise<AppManifest> {
   const manifestPath = findManifestPath(cwd);
-  const raw          = await Bun.file(manifestPath).text();
-  return { ...parseManifest(substituteVars(raw, vars)), manifestPath };
+  const template     = await Bun.file(manifestPath).text();
+  return { ...parseManifest(substituteVars(template, vars)), template, manifestPath };
 }
 
 /**
@@ -83,6 +85,7 @@ export function parseManifest(raw: string): Omit<AppManifest, "manifestPath"> {
     port,
     pvcName,
     raw,
+    template: raw,  // overwritten by loadManifest with the real template
   };
 }
 

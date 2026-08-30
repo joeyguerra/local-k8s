@@ -38,17 +38,18 @@ async function loadContext() {
 async function push(): Promise<void> {
   const { app, values, kc } = await loadContext();
 
-  const tag     = await resolveTag(app.imageBase, app.raw);
-  const updated = updateImageTag(app.raw, app.imageBase, tag);
+  const tag            = await resolveTag(app.imageBase, app.raw);
+  const updatedForApply = updateImageTag(app.raw,      app.imageBase, tag);
+  const updatedForDisk  = updateImageTag(app.template, app.imageBase, tag);
 
   await buildImage(app.imageBase, tag);
   await importToK3s(app.imageBase, tag, values.lima);
 
-  // Write the tag-updated manifest back to wherever it was loaded from
-  // (deployment.yaml or k8s/deployment.yaml) so the file stays in sync.
-  await Bun.write(app.manifestPath, updated);
+  // Write back using the original template ({{ vars }} intact) so placeholders
+  // are preserved for future infra push / infra up runs.
+  await Bun.write(app.manifestPath, updatedForDisk);
 
-  await kc.apply(updated);
+  await kc.apply(updatedForApply);
 
   // Always restart — even if the manifest was unchanged, a new image was
   // imported under the same tag and Kubernetes won't pull it automatically.
