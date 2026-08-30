@@ -19,7 +19,6 @@ import { dirname, resolve } from "node:path";
 const REPO_ROOT       = dirname(resolve(process.argv[0]));
 const LIMA_YAML       = resolve(REPO_ROOT, "k3s-lima.yaml");
 const NAMESPACES_DIR  = resolve(REPO_ROOT, "namespaces");
-const RBAC_DIR        = resolve(REPO_ROOT, "rbac");
 
 export async function run(subcommand: string, _args: string[]): Promise<void> {
   switch (subcommand) {
@@ -28,10 +27,9 @@ export async function run(subcommand: string, _args: string[]): Promise<void> {
     case "stop":    return stop();
     case "status":  return status();
     case "shell":   return openShell(LIMA_INSTANCE);
-    case "rbac":    return applyRbac();
     default:
       console.error(`Unknown subcommand: infra cluster ${subcommand ?? ""}`);
-      console.error("Available: setup | start | stop | status | shell | rbac");
+      console.error("Available: setup | start | stop | status | shell");
       process.exit(1);
   }
 }
@@ -67,9 +65,6 @@ async function setup(): Promise<void> {
 
   // 5. Apply namespace policies (PodSecurity labels, etc.)
   await applyNamespaces();
-
-  // 6. Apply cluster-wide RBAC
-  await applyRbac();
 
   // 6. Install LaunchDaemon so k3s starts at every boot
   await installLaunchDaemon();
@@ -121,24 +116,10 @@ async function status(): Promise<void> {
   await kc.getAllPods();
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// infra cluster rbac — apply cluster-wide RBAC manifests from rbac/
-// ---------------------------------------------------------------------------
-
 async function applyNamespaces(): Promise<void> {
   console.log("[namespaces] Applying namespace policies from namespaces/...");
   await Bun.$`kubectl --context=${KUBE_CONTEXT} apply -f ${NAMESPACES_DIR}`;
   console.log("[namespaces] Done");
-}
-
-async function applyRbac(): Promise<void> {
-  console.log("[rbac] Applying cluster-wide RBAC from rbac/...");
-  await Bun.$`kubectl --context=${KUBE_CONTEXT} apply -f ${RBAC_DIR}`;
-  console.log("[rbac] Done");
 }
 
 async function ensureBrew(): Promise<void> {

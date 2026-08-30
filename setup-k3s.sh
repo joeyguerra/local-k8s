@@ -92,12 +92,7 @@ rm -f "$TMP_CFG"
 log "kubectl context '$KUBE_CONTEXT' is ready."
 kubectl --context="$KUBE_CONTEXT" get nodes
 
-# ── 5. Apply cluster-wide RBAC ───────────────────────────────────────────────
-
-log "Applying cluster-wide RBAC from rbac/..."
-kubectl --context="$KUBE_CONTEXT" apply -f "$SCRIPT_DIR/rbac/"
-
-# ── 6. Install LaunchDaemon ───────────────────────────────────────────────────
+# ── 5. Install LaunchDaemon ───────────────────────────────────────────────────
 
 log "Installing LaunchDaemon (requires sudo)..."
 sudo cp "$PLIST_SRC" "$PLIST_DST"
