@@ -97,6 +97,48 @@ sudo launchctl bootstrap system /Library/LaunchDaemons/com.joeyguerra.lima-k3s.p
 
 ---
 
+## Security: host home directory access
+
+Lima mounts the host home directory (`~`) into the VM **by default**. This is not
+configurable via the instance YAML — Lima's mount lists are additive only, so
+removing `~` from `mounts:` in `k3s-lima.yaml` has no effect
+([lima-vm/lima#627](https://github.com/lima-vm/lima/discussions/627)).
+
+As a result, any pod that declares a `hostPath` volume pointing to `/Users/joeyguerra`
+can read the host home directory from inside the cluster.
+
+### Mitigation: PodSecurity baseline policy
+
+`namespaces/default.yaml` applies the `baseline` PodSecurity profile to the `default`
+namespace, which blocks `hostPath` volumes at the API server level:
+
+```yaml
+pod-security.kubernetes.io/enforce: baseline
+```
+
+This is applied automatically by `infra cluster setup`. To verify it is active:
+
+```sh
+kubectl --context=k3s-local get namespace default -o yaml | grep pod-security
+```
+
+To confirm a pod with a `hostPath` volume is rejected:
+
+```sh
+kubectl --context=k3s-local run test --image=busybox --restart=Never \
+  --overrides='{"spec":{"volumes":[{"name":"h","hostPath":{"path":"/Users/joeyguerra"}}],"containers":[{"name":"test","image":"busybox","volumeMounts":[{"name":"h","mountPath":"/h"}]}]}}'
+# Expected: Error from server (Forbidden): ... violates PodSecurity "baseline:latest": hostPath volumes
+```
+
+### Why not fix the Lima mount?
+
+The only way to remove the default `~` mount from a running instance is to edit it
+directly (`limactl edit k3s`), which is not reproducible — the edit is lost if the VM
+is recreated. The PodSecurity policy lives in `namespaces/default.yaml` and is
+reapplied on every `infra cluster setup`, making it the durable solution.
+
+---
+
 ## Architecture
 
 ```
