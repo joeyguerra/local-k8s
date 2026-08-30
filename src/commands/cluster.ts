@@ -16,9 +16,10 @@ import { dirname, resolve } from "node:path";
 // process.argv[0] is the actual binary path on disk in both compiled and dev
 // mode. import.meta.url and Bun.main both resolve into /$bunfs/root/ when
 // compiled, making them unusable for locating sibling files on disk.
-const REPO_ROOT = dirname(resolve(process.argv[0]));
-const LIMA_YAML = resolve(REPO_ROOT, "k3s-lima.yaml");
-const RBAC_DIR  = resolve(REPO_ROOT, "rbac");
+const REPO_ROOT       = dirname(resolve(process.argv[0]));
+const LIMA_YAML       = resolve(REPO_ROOT, "k3s-lima.yaml");
+const NAMESPACES_DIR  = resolve(REPO_ROOT, "namespaces");
+const RBAC_DIR        = resolve(REPO_ROOT, "rbac");
 
 export async function run(subcommand: string, _args: string[]): Promise<void> {
   switch (subcommand) {
@@ -64,7 +65,10 @@ async function setup(): Promise<void> {
   // 4. Merge kubeconfig
   await mergeKubeconfig(LIMA_INSTANCE, KUBE_CONTEXT);
 
-  // 5. Apply cluster-wide RBAC
+  // 5. Apply namespace policies (PodSecurity labels, etc.)
+  await applyNamespaces();
+
+  // 6. Apply cluster-wide RBAC
   await applyRbac();
 
   // 6. Install LaunchDaemon so k3s starts at every boot
@@ -124,6 +128,12 @@ async function status(): Promise<void> {
 // ---------------------------------------------------------------------------
 // infra cluster rbac — apply cluster-wide RBAC manifests from rbac/
 // ---------------------------------------------------------------------------
+
+async function applyNamespaces(): Promise<void> {
+  console.log("[namespaces] Applying namespace policies from namespaces/...");
+  await Bun.$`kubectl --context=${KUBE_CONTEXT} apply -f ${NAMESPACES_DIR}`;
+  console.log("[namespaces] Done");
+}
 
 async function applyRbac(): Promise<void> {
   console.log("[rbac] Applying cluster-wide RBAC from rbac/...");
