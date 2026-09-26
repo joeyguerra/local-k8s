@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+
 // Colima is the Docker backend. Use its socket so commands work without
 // Docker Desktop. Override via the DOCKER_HOST environment variable.
 const DOCKER_HOST =
@@ -21,12 +23,26 @@ export async function resolveTag(_imageBase: string, _manifestRaw: string): Prom
 }
 
 /**
+ * Resolve which Dockerfile to use for a given local image base.
+ *
+ * Convention: local/X → Dockerfile.X if it exists in cwd, otherwise Dockerfile.
+ * Examples:
+ *   local/agent       → Dockerfile          (Dockerfile.agent not found)
+ *   local/agent-mesh  → Dockerfile.agent-mesh
+ */
+export function resolveDockerfile(imageBase: string, cwd: string = process.cwd()): string {
+  const name     = imageBase.replace(/^local\//, "");
+  const specific = `${cwd}/Dockerfile.${name}`;
+  return existsSync(specific) ? specific : `${cwd}/Dockerfile`;
+}
+
+/**
  * Build the Docker image and load it into the local Colima daemon.
  */
-export async function buildImage(imageBase: string, tag: string): Promise<void> {
+export async function buildImage(imageBase: string, tag: string, dockerfile: string = "Dockerfile"): Promise<void> {
   const image = `${imageBase}:${tag}`;
-  console.log(`[docker] Building ${image}`);
-  await Bun.$`docker build --load -t ${image} .`
+  console.log(`[docker] Building ${image} (${dockerfile})`);
+  await Bun.$`docker build --load -t ${image} -f ${dockerfile} .`
     .env({ ...process.env, DOCKER_HOST });
   console.log(`[docker] Build complete: ${image}`);
 }

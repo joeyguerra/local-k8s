@@ -1,6 +1,6 @@
 import { loadManifest, updateImageTag } from "../lib/manifest.ts";
 import { loadValues } from "../lib/values.ts";
-import { resolveTag, buildImage, importToK3s } from "../lib/docker.ts";
+import { resolveTag, resolveDockerfile, buildImage, importToK3s } from "../lib/docker.ts";
 import { kubectl } from "../lib/kubectl.ts";
 import { mkdirSync } from "node:fs";
 
@@ -36,14 +36,24 @@ async function loadContext() {
 // ---------------------------------------------------------------------------
 
 async function push(): Promise<void> {
-  const { app, values, kc } = await loadContext();
+  const { cwd, app, values, kc } = await loadContext();
 
-  const tag            = await resolveTag(app.imageBase, app.raw);
-  const updatedForApply = updateImageTag(app.raw,      app.imageBase, tag);
-  const updatedForDisk  = updateImageTag(app.template, app.imageBase, tag);
+  const tag = await resolveTag(app.imageBase, app.raw);
 
-  await buildImage(app.imageBase, tag);
-  await importToK3s(app.imageBase, tag, values.lima);
+  // Build and import every local/ image found in the manifest.
+  for (const imageBase of app.images) {
+    const dockerfile = resolveDockerfile(imageBase, cwd);
+    await buildImage(imageBase, tag, dockerfile);
+    await importToK3s(imageBase, tag, values.lima);
+  }
+
+  // Update all local/ image tags in both the apply copy and the on-disk template.
+  let updatedForApply = app.raw;
+  let updatedForDisk  = app.template;
+  for (const imageBase of app.images) {
+    updatedForApply = updateImageTag(updatedForApply, imageBase, tag);
+    updatedForDisk  = updateImageTag(updatedForDisk,  imageBase, tag);
+  }
 
   // Write back using the original template ({{ vars }} intact) so placeholders
   // are preserved for future infra push / infra up runs.
@@ -64,10 +74,13 @@ async function push(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function build(): Promise<void> {
-  const { app, values } = await loadContext();
+  const { cwd, app, values } = await loadContext();
   const tag = await resolveTag(app.imageBase, app.raw);
-  await buildImage(app.imageBase, tag);
-  await importToK3s(app.imageBase, tag, values.lima);
+  for (const imageBase of app.images) {
+    const dockerfile = resolveDockerfile(imageBase, cwd);
+    await buildImage(imageBase, tag, dockerfile);
+    await importToK3s(imageBase, tag, values.lima);
+  }
 }
 
 // ---------------------------------------------------------------------------

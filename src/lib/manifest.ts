@@ -8,6 +8,8 @@ export interface AppManifest {
   image: string;
   /** Image name without tag, e.g. local/web-analytics */
   imageBase: string;
+  /** All unique local/ image bases across every container in the pod (init + regular) */
+  images: string[];
   /** containerPort of the first container */
   port: number;
   /** claimName of the first PVC volume, if any */
@@ -61,15 +63,25 @@ export function parseManifest(raw: string): Omit<AppManifest, "manifestPath"> {
   const deployment = docs.find(d => d?.kind === "Deployment");
   if (!deployment) throw new Error("No Deployment resource found in deployment.yaml");
 
-  const spec      = deployment.spec as Record<string, unknown>;
-  const podSpec   = ((spec.template as Record<string, unknown>).spec) as Record<string, unknown>;
+  const spec       = deployment.spec as Record<string, unknown>;
+  const podSpec    = ((spec.template as Record<string, unknown>).spec) as Record<string, unknown>;
   const containers = podSpec.containers as Array<Record<string, unknown>>;
-  const container = containers[0];
+  const container  = containers[0];
 
   const image     = container.image as string;
   const imageBase = image.includes(":") ? image.split(":")[0] : image;
   const ports     = (container.ports as Array<Record<string, unknown>> | undefined) ?? [];
   const port      = (ports[0]?.containerPort as number) ?? 3000;
+
+  // Collect all local/ image bases from every container in the pod (init + regular).
+  // These are the images infra push will build and import.
+  const initContainers = (podSpec.initContainers as Array<Record<string, unknown>> | undefined) ?? [];
+  const images = [...new Set(
+    [...initContainers, ...containers]
+      .map(c => c.image as string)
+      .filter((img): img is string => typeof img === "string" && img.startsWith("local/"))
+      .map(img => img.includes(":") ? img.split(":")[0] : img)
+  )];
 
   const volumes   = (podSpec.volumes as Array<Record<string, unknown>> | undefined) ?? [];
   const pvcVol    = volumes.find(v => v.persistentVolumeClaim);
@@ -82,6 +94,7 @@ export function parseManifest(raw: string): Omit<AppManifest, "manifestPath"> {
     name:      meta.name as string,
     image,
     imageBase,
+    images,
     port,
     pvcName,
     raw,
