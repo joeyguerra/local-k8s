@@ -16,20 +16,22 @@ import { dirname, resolve } from "node:path";
 // process.argv[0] is the actual binary path on disk in both compiled and dev
 // mode. import.meta.url and Bun.main both resolve into /$bunfs/root/ when
 // compiled, making them unusable for locating sibling files on disk.
-const REPO_ROOT       = dirname(resolve(process.argv[0]));
-const LIMA_YAML       = resolve(REPO_ROOT, "k3s-lima.yaml");
-const NAMESPACES_DIR  = resolve(REPO_ROOT, "namespaces");
+const REPO_ROOT        = dirname(resolve(process.argv[0]));
+const LIMA_YAML        = resolve(REPO_ROOT, "vm", "k3s-lima.yaml");
+const NAMESPACES_DIR   = resolve(REPO_ROOT, "namespaces");
+const BOOTSTRAP_SCRIPT = resolve(REPO_ROOT, "bootstrap-mesh.sh");
 
 export async function run(subcommand: string, _args: string[]): Promise<void> {
   switch (subcommand) {
-    case "setup":   return setup();
-    case "start":   return start();
-    case "stop":    return stop();
-    case "status":  return status();
-    case "shell":   return openShell(LIMA_INSTANCE);
+    case "setup":     return setup();
+    case "bootstrap": return bootstrap();
+    case "start":     return start();
+    case "stop":      return stop();
+    case "status":    return status();
+    case "shell":     return openShell(LIMA_INSTANCE);
     default:
       console.error(`Unknown subcommand: infra cluster ${subcommand ?? ""}`);
-      console.error("Available: setup | start | stop | status | shell");
+      console.error("Available: setup | bootstrap | start | stop | status | shell");
       process.exit(1);
   }
 }
@@ -76,6 +78,31 @@ async function setup(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// infra cluster bootstrap — one-time GitOps mesh stack setup
+//
+// Delegates to bootstrap-mesh.sh which:
+//   1. Configures the k3s insecure registry mirror (registry.local:5000 → NodePort 30500)
+//   2. Deploys the in-cluster registry
+//   3. Builds and pushes mesh-ci-runner, and mesh-gitops-controller images
+//   4. Deploys the CI runner pod and GitOps controller
+// ---------------------------------------------------------------------------
+
+async function bootstrap(): Promise<void> {
+  console.log("=== infra cluster bootstrap ===\n");
+  console.log(`Running ${BOOTSTRAP_SCRIPT}`);
+  const proc = Bun.spawn(["bash", BOOTSTRAP_SCRIPT], {
+    stdout: "inherit",
+    stderr: "inherit",
+    stdin: "inherit",
+  });
+  const code = await proc.exited;
+  if (code !== 0) {
+    console.error(`\n[bootstrap] Script exited with code ${code}`);
+    process.exit(code);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // infra cluster start — used manually and replicated by start-lima-k3s.sh
 // ---------------------------------------------------------------------------
 
@@ -112,7 +139,10 @@ async function status(): Promise<void> {
   console.log("\n=== Nodes ===");
   await kc.getNodes();
 
-  console.log("\n=== Pods (all namespaces) ===");
+  console.log("\n=== GitOps stack (mesh-system / ci) ===");
+  await Bun.$`kubectl --context=${KUBE_CONTEXT} get pods -n mesh-system -n ci --ignore-not-found`.nothrow();
+
+  console.log("\n=== All pods ===");
   await kc.getAllPods();
 }
 

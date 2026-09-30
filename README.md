@@ -1,188 +1,132 @@
-# Local Kubernetes on Mac Mini (k3s via Lima)
+# local-k8s
 
-Runs k3s inside a Lima VM on a Mac Mini, with public traffic via Cloudflare tunnel.
-k3s auto-starts at boot via a LaunchDaemon — survives power outages without requiring login.
+VM and cluster management for a Mac Mini running k3s via Lima, with GitOps deployments via the mesh stack.
 
-kubectl context: `k3s-local`
+## What's here
 
-## Migrating from k3d → k3s (one-time)
-
-### 1. Run setup (installs Lima, creates k3s VM, installs LaunchDaemon)
-
-```sh
-bash setup-k3s.sh
 ```
+vm/k3s-lima.yaml               Lima VM definition (QEMU, Ubuntu, k3s)
+vm/registries.yaml             k3s insecure registry mirror config (registry.local:5000)
+bootstrap-mesh.sh               One-time GitOps stack bootstrap
+namespaces/                     Namespace PodSecurity policies
+cloudflared-deployment.yml      Cloudflare tunnel manifest (embedded by infra cf setup)
+vm/com.joeyguerra.lima-k3s.plist   LaunchDaemon — starts Lima VM at boot (no login required)
+vm/start-lima-k3s.sh           Called by the LaunchDaemon
 
-This installs Lima via Homebrew, creates a QEMU-backed Ubuntu VM running k3s,
-merges `k3s-local` into `~/.kube/config`, and installs the boot LaunchDaemon.
+cicd/
+  mesh-ci-runner/               mesh daemon + bun + docker CLI — runs CI pipelines
+  mesh-gitops-controller/       polls mesh-gitops repo and applies manifests to k3s
 
-### 2. Create `.env` with your Cloudflare tunnel token
-
-```sh
-echo "CF_TOKEN=your_token_here" > .env
+src/                            infra CLI source (TypeScript / Bun)
+cli.ts                          CLI entry point
 ```
-
-Get the token from Cloudflare Zero Trust → Tunnels → your tunnel → Configure → Token.
-
-### 3. Deploy all apps to k3s
-
-```sh
-bash deploy-to-k3s.sh
-```
-
-This deploys cloudflared, prompts for secrets (discord-token, cookie-secret),
-and runs `npm run push` for each app. Existing app build scripts work unchanged —
-a `k3d` shim intercepts image imports and redirects them to Lima k3s.
-
-### 4. Verify, then decommission k3d
-
-```sh
-kubectl --context=k3s-local get pods -A
-
-# Once confirmed everything is working:
-k3d cluster delete local
-brew uninstall k3d
-```
-
----
-
-## Day-to-day operations
-
-### Check cluster status
-
-```sh
-kubectl --context=k3s-local get nodes
-kubectl --context=k3s-local get pods -A
-```
-
-### Deploy an app update
-
-From the app repo, same as before but with the new context:
-
-```sh
-KUBE_CONTEXT=k3s-local KUBE_CLUSTER=k3s npm run push
-```
-
-### Import a Docker image manually
-
-```sh
-./k3s-image-import.sh local/my-image:1.2.3
-```
-
-### Access the Lima VM
-
-```sh
-limactl shell k3s
-```
-
-### View LaunchDaemon boot log
-
-```sh
-tail -f /var/log/lima-k3s.log
-```
-
-### Stop / start Lima VM manually
-
-```sh
-limactl stop k3s
-limactl start k3s --tty=false
-```
-
-### Reload the LaunchDaemon (after editing the plist)
-
-```sh
-sudo launchctl bootout system /Library/LaunchDaemons/com.joeyguerra.lima-k3s.plist
-sudo launchctl bootstrap system /Library/LaunchDaemons/com.joeyguerra.lima-k3s.plist
-```
-
----
-
-## Security: host home directory access
-
-Lima mounts the host home directory (`~`) into the VM **by default**. This is not
-configurable via the instance YAML — Lima's mount lists are additive only, so
-removing `~` from `mounts:` in `k3s-lima.yaml` has no effect
-([lima-vm/lima#627](https://github.com/lima-vm/lima/discussions/627)).
-
-As a result, any pod that declares a `hostPath` volume pointing to `/Users/joeyguerra`
-can read the host home directory from inside the cluster.
-
-### Mitigation: PodSecurity baseline policy
-
-`namespaces/default.yaml` applies the `baseline` PodSecurity profile to the `default`
-namespace, which blocks `hostPath` volumes at the API server level:
-
-```yaml
-pod-security.kubernetes.io/enforce: baseline
-```
-
-This is applied automatically by `infra cluster setup`. To verify it is active:
-
-```sh
-kubectl --context=k3s-local get namespace default -o yaml | grep pod-security
-```
-
-To confirm a pod with a `hostPath` volume is rejected:
-
-```sh
-kubectl --context=k3s-local run test --image=busybox --restart=Never \
-  --overrides='{"spec":{"volumes":[{"name":"h","hostPath":{"path":"/Users/joeyguerra"}}],"containers":[{"name":"test","image":"busybox","volumeMounts":[{"name":"h","mountPath":"/h"}]}]}}'
-# Expected: Error from server (Forbidden): ... violates PodSecurity "baseline:latest": hostPath volumes
-```
-
-### Why not fix the Lima mount?
-
-The only way to remove the default `~` mount from a running instance is to edit it
-directly (`limactl edit k3s`), which is not reproducible — the edit is lost if the VM
-is recreated. The PodSecurity policy lives in `namespaces/default.yaml` and is
-reapplied on every `infra cluster setup`, making it the durable solution.
-
----
 
 ## Architecture
 
 ```
 Mac Mini boot
-  └── launchd (system)
-        └── com.joeyguerra.lima-k3s (LaunchDaemon, runs as joeyguerra)
-              └── start-lima-k3s.sh
-                    └── limactl start k3s  ← QEMU VM
-                          └── Ubuntu 24.04
-                                └── k3s (systemd service)
-                                      ├── cloudflared (2 replicas) → Cloudflare edge
-                                      ├── jbot-website
-                                      ├── coppellfornewtech-website
-                                      ├── logprojector-website
-                                      ├── lis7s-website
-                                      └── fieldmappings-website
+  └── launchd → com.joeyguerra.lima-k3s (LaunchDaemon, no login required)
+        └── limactl start k3s  (QEMU VM, Ubuntu 24.04)
+              └── k3s
+                    ├── mesh-system/
+                    │     ├── registry          in-cluster image registry (NodePort 30500)
+                    │     └── mesh-gitops-controller  polls mesh-gitops.git every 30s
+                    ├── ci/
+                    │     └── mesh-ci-runner    mesh daemon + CI runner (builds + pushes images)
+                    └── default/
+                          ├── cloudflared       → Cloudflare edge (public traffic)
+                          └── ... apps          managed by GitOps
 ```
 
-Port 6443 (k3s API) is forwarded from the VM to `127.0.0.1:6443` on the host.
+**Deployments go through GitOps.** Push a manifest change to the `mesh-gitops` repo and the controller applies it within 30s. Images are built by the CI runner when commits land on the mesh network.
 
----
+**Mesh P2P network** (kaizen-hq/mesh v5.4.1) connects the host, ci-runner, controller, and agent. Each node serves git repos over self-signed HTTPS at port 7979.
 
-## k3d reference (legacy)
+## First-time setup
 
-The original k3d setup is preserved here for reference.
-
-### Create a k3d cluster
+### 1. Create the VM and install the LaunchDaemon
 
 ```sh
-k3d cluster create local-canary --k3s-arg="--disable=traefik@server:0" --image rancher/k3s
+infra cluster setup
 ```
 
-### Delete a k3d cluster
+This installs Lima, creates the k3s VM, merges the kubeconfig, applies namespace policies, and installs the boot LaunchDaemon.
+
+### 2. Copy `.env.example` → `.env` and fill in your mesh pubkey
 
 ```sh
-k3d cluster delete local
+cp .env.example .env
+# Edit .env: set MESH_PEER_PUBKEY to the output of: mesh pubkey
 ```
 
-### Deploy apps to k3d
+### 3. Bootstrap the GitOps stack
 
 ```sh
-kubectl create secret generic cloudflared-token --from-env-file=.env -n default
-kubectl apply -f cloudflared-deployment.yml
-kubectl create secret generic discord-token --from-literal=HUBOT_DISCORD_TOKEN='<value>' -n default
-kubectl create secret generic cookie-secret --from-literal=COOKIE_SECRET='<value>' -n default
-KUBE_CONTEXT=k3d-local KUBE_CLUSTER=local ./deploy-all-apps.sh
+infra cluster bootstrap
 ```
+
+This builds and pushes the mesh-ci-runner and mesh-gitops-controller images, deploys the in-cluster registry, runs the invite/join dance, and pushes the gitops repo into the mesh network.
+
+### 4. Deploy the Cloudflare tunnel
+
+```sh
+infra cf setup
+```
+
+Reads `CF_TOKEN` from `~/.config/infra/.env` (or `CF_TOKEN` env var).
+
+## Day-to-day
+
+```sh
+infra cluster status     # VM status, nodes, GitOps stack, all pods
+infra cluster start      # start Lima VM + wait for k3s API
+infra cluster stop       # gracefully stop Lima VM
+infra cluster shell      # interactive shell inside the Lima VM
+```
+
+kubectl context: `k3s-local`
+
+## Security: host home directory
+
+Lima mounts `~` into the VM by default and this cannot be disabled ([lima#627](https://github.com/lima-vm/lima/discussions/627)). `namespaces/default.yaml` enforces the `baseline` PodSecurity profile on the `default` namespace, which blocks `hostPath` volumes at the API server level.
+
+## Mesh peering topology
+
+```
+host (joey-agent, host.lima.internal:7979)
+  └── mesh-ci-runner (ci namespace, mesh-ci-runner.ci.svc.cluster.local:7979)
+        ├── mesh-gitops-controller (mesh-system)
+        └── agent (default)
+```
+
+Peering is established once via `mesh invite` / `mesh join` and persists in PVCs at `/home/mesh/.mesh`. Re-run `infra cluster bootstrap` after a full teardown.
+
+## Redeploying infrastructure images
+
+The CI runner and GitOps controller are not self-managed by GitOps — they are the infrastructure that runs GitOps. To update them, build and push from the Mac host, then force a rollout so k3s pulls the new image.
+
+```sh
+# Rebuild and push
+docker build -t host.docker.internal:5050/mesh-ci-runner:latest ./cicd/mesh-ci-runner
+docker push host.docker.internal:5050/mesh-ci-runner:latest
+
+docker build -t host.docker.internal:5050/mesh-gitops-controller:latest ./cicd/mesh-gitops-controller
+docker push host.docker.internal:5050/mesh-gitops-controller:latest
+
+# Force new pods (k3s will pull the updated image)
+kubectl rollout restart deployment/mesh-ci-runner -n ci
+kubectl rollout restart deployment/mesh-gitops-controller -n mesh-system
+```
+
+`host.docker.internal:5050` is the Mac-side entry point for the in-cluster registry — Docker in Colima reaches it via the Lima port forward. The k3s node pulls the same image via the `registry.local:5000` mirror (NodePort 30500).
+
+## Deploying the agent
+
+The agent is not part of the bootstrap — deploy it separately once the GitOps stack is running:
+
+```sh
+cd ../devchitchat/agent
+./deploy.sh
+```
+
+This builds and pushes the agent and mesh-agent images, pushes `apps/agent/deployment.yaml` into the gitops repo, waits for rollout, and peers the agent's mesh node with the CI runner.

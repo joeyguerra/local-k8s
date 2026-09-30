@@ -1,14 +1,10 @@
-import { loadManifest, updateImageTag } from "../lib/manifest.ts";
+import { loadManifest } from "../lib/manifest.ts";
 import { loadValues } from "../lib/values.ts";
-import { resolveTag, resolveDockerfile, buildImage, importToK3s } from "../lib/docker.ts";
 import { kubectl } from "../lib/kubectl.ts";
 import { mkdirSync } from "node:fs";
 
 export async function run(command: string, _args: string[]): Promise<void> {
   switch (command) {
-    case "push":   return push();
-    case "build":  return build();
-    case "up":     return up();
     case "render": return render();
     case "status": return appStatus();
     case "logs":   return logs();
@@ -29,68 +25,6 @@ async function loadContext() {
   const app    = await loadManifest(cwd, values.vars);
   const kc     = kubectl(values.context, values.namespace);
   return { cwd, values, app, kc };
-}
-
-// ---------------------------------------------------------------------------
-// infra push — build image → import to k3s → apply manifest
-// ---------------------------------------------------------------------------
-
-async function push(): Promise<void> {
-  const { cwd, app, values, kc } = await loadContext();
-
-  const tag = await resolveTag(app.imageBase, app.raw);
-
-  // Build and import every local/ image found in the manifest.
-  for (const imageBase of app.images) {
-    const dockerfile = resolveDockerfile(imageBase, cwd);
-    await buildImage(imageBase, tag, dockerfile);
-    await importToK3s(imageBase, tag, values.lima);
-  }
-
-  // Update all local/ image tags in both the apply copy and the on-disk template.
-  let updatedForApply = app.raw;
-  let updatedForDisk  = app.template;
-  for (const imageBase of app.images) {
-    updatedForApply = updateImageTag(updatedForApply, imageBase, tag);
-    updatedForDisk  = updateImageTag(updatedForDisk,  imageBase, tag);
-  }
-
-  // Write back using the original template ({{ vars }} intact) so placeholders
-  // are preserved for future infra push / infra up runs.
-  await Bun.write(app.manifestPath, updatedForDisk);
-
-  await kc.apply(updatedForApply);
-
-  // Always restart — even if the manifest was unchanged, a new image was
-  // imported under the same tag and Kubernetes won't pull it automatically.
-  console.log(`[push] Restarting deployment/${app.name}...`);
-  await kc.rolloutRestart(app.name);
-
-  console.log(`\n[push] ${app.name} deployed (${app.imageBase}:${tag})`);
-}
-
-// ---------------------------------------------------------------------------
-// infra build — docker build + k3s import only (no kubectl apply)
-// ---------------------------------------------------------------------------
-
-async function build(): Promise<void> {
-  const { cwd, app, values } = await loadContext();
-  const tag = await resolveTag(app.imageBase, app.raw);
-  for (const imageBase of app.images) {
-    const dockerfile = resolveDockerfile(imageBase, cwd);
-    await buildImage(imageBase, tag, dockerfile);
-    await importToK3s(imageBase, tag, values.lima);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// infra up — apply current manifest (no build)
-// ---------------------------------------------------------------------------
-
-async function up(): Promise<void> {
-  const { app, kc } = await loadContext();
-  await kc.apply(app.raw);
-  console.log(`[up] Applied manifest for ${app.name}`);
 }
 
 // ---------------------------------------------------------------------------

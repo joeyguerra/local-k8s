@@ -10,7 +10,8 @@
   "scripts": {
     "typecheck": "bunx tsc --noEmit",
     "compile": "bun build --compile ./cli.ts --outfile infra",
-    "install:bin": "bun run compile && sudo cp infra /usr/local/bin/infra"
+    "install:bin": "bun run compile && sudo cp infra /usr/local/bin/infra",
+    "runner:push": "./cicd/mesh-ci-runner/deploy.sh"
   },
   "dependencies": {
     "yaml": "^2.7.1"

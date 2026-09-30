@@ -51,6 +51,12 @@ portForwards:
   - guestPort: 30797
     hostPort: 30797
     proto: "tcp"
+  # Forward in-cluster registry NodePort for image pushes from the host.
+  # Port 5000 is taken by macOS AirPlay; use 5050 instead.
+  - guestPort: 30500
+    hostPort: 5050
+    hostIP: "127.0.0.1"
+    proto: "tcp"
 
 mounts:
   - location: "/tmp/lima"

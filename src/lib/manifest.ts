@@ -4,12 +4,8 @@ import { existsSync } from "node:fs";
 export interface AppManifest {
   /** metadata.name of the Deployment */
   name: string;
-  /** Full image string from the manifest, e.g. local/web-analytics:abc1234 */
+  /** Full image string from the first container, e.g. registry.local:5000/web-analytics:abc1234 */
   image: string;
-  /** Image name without tag, e.g. local/web-analytics */
-  imageBase: string;
-  /** All unique local/ image bases across every container in the pod (init + regular) */
-  images: string[];
   /** containerPort of the first container */
   port: number;
   /** claimName of the first PVC volume, if any */
@@ -68,20 +64,9 @@ export function parseManifest(raw: string): Omit<AppManifest, "manifestPath"> {
   const containers = podSpec.containers as Array<Record<string, unknown>>;
   const container  = containers[0];
 
-  const image     = container.image as string;
-  const imageBase = image.includes(":") ? image.split(":")[0] : image;
-  const ports     = (container.ports as Array<Record<string, unknown>> | undefined) ?? [];
-  const port      = (ports[0]?.containerPort as number) ?? 3000;
-
-  // Collect all local/ image bases from every container in the pod (init + regular).
-  // These are the images infra push will build and import.
-  const initContainers = (podSpec.initContainers as Array<Record<string, unknown>> | undefined) ?? [];
-  const images = [...new Set(
-    [...initContainers, ...containers]
-      .map(c => c.image as string)
-      .filter((img): img is string => typeof img === "string" && img.startsWith("local/"))
-      .map(img => img.includes(":") ? img.split(":")[0] : img)
-  )];
+  const image  = container.image as string;
+  const ports  = (container.ports as Array<Record<string, unknown>> | undefined) ?? [];
+  const port   = (ports[0]?.containerPort as number) ?? 3000;
 
   const volumes   = (podSpec.volumes as Array<Record<string, unknown>> | undefined) ?? [];
   const pvcVol    = volumes.find(v => v.persistentVolumeClaim);
@@ -91,10 +76,8 @@ export function parseManifest(raw: string): Omit<AppManifest, "manifestPath"> {
   const meta = deployment.metadata as Record<string, unknown>;
 
   return {
-    name:      meta.name as string,
+    name:   meta.name as string,
     image,
-    imageBase,
-    images,
     port,
     pvcName,
     raw,
@@ -102,14 +85,3 @@ export function parseManifest(raw: string): Omit<AppManifest, "manifestPath"> {
   };
 }
 
-/**
- * Replace the image tag in the raw manifest string and return the updated YAML.
- * Uses the same approach as docker-build-k3s.sh — a targeted string replace.
- */
-export function updateImageTag(raw: string, imageBase: string, tag: string): string {
-  const escapedBase = imageBase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return raw.replace(
-    new RegExp(`(${escapedBase}:)[a-zA-Z0-9._-]+`, "g"),
-    `$1${tag}`
-  );
-}

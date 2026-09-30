@@ -1,40 +1,55 @@
 import { existsSync, writeFileSync, unlinkSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 
-const PLIST_NAME = "com.joeyguerra.lima-k3s";
-const PLIST_DEST = `/Library/LaunchDaemons/${PLIST_NAME}.plist`;
-
 // Embedded at compile time so the binary is self-contained
-import PLIST_CONTENT from "../../com.joeyguerra.lima-k3s.plist" with { type: "text" };
+import LIMA_PLIST from "../../vm/com.joeyguerra.lima-k3s.plist" with { type: "text" };
+import COLIMA_PLIST from "../../vm/com.joeyguerra.colima.plist" with { type: "text" };
 
 /**
- * Install the LaunchDaemon plist and load it via launchctl.
+ * Install both LaunchDaemons/Agents and load them.
  *
- * Requires sudo — the script prompts macOS for credentials automatically
- * when running in a terminal. Mirrors the steps in setup-k3s.sh.
+ * Lima k3s  → /Library/LaunchDaemons  (system daemon, survives logout)
+ * Colima    → ~/Library/LaunchAgents  (user agent, requires login session)
  *
- * Safe to re-run: if the plist is already loaded it first unloads it,
- * then re-installs and re-loads.
+ * Safe to re-run: existing entries are unloaded before reinstalling.
  */
 export async function installLaunchDaemon(): Promise<void> {
-  console.log(`[launchdaemon] Installing ${PLIST_NAME} (requires sudo)...`);
+  await installLima();
+  await installColima();
+}
 
-  // Write embedded plist to a temp file so we can sudo cp it
-  const tmp = join(tmpdir(), `${PLIST_NAME}.plist`);
-  writeFileSync(tmp, PLIST_CONTENT, "utf8");
+async function installLima(): Promise<void> {
+  const name = "com.joeyguerra.lima-k3s";
+  const dest = `/Library/LaunchDaemons/${name}.plist`;
+  console.log(`[launchdaemon] Installing ${name} (requires sudo)...`);
+
+  const tmp = join(tmpdir(), `${name}.plist`);
+  writeFileSync(tmp, LIMA_PLIST, "utf8");
 
   try {
-    // Unload first if it's already installed, so we can overwrite cleanly
-    if (existsSync(PLIST_DEST)) {
-      await Bun.$`sudo launchctl bootout system/${PLIST_NAME}`.nothrow();
+    if (existsSync(dest)) {
+      await Bun.$`sudo launchctl bootout system/${name}`.nothrow();
     }
-
-    await Bun.$`sudo cp ${tmp} ${PLIST_DEST}`;
-    await Bun.$`sudo launchctl bootstrap system ${PLIST_DEST}`;
+    await Bun.$`sudo cp ${tmp} ${dest}`;
+    await Bun.$`sudo launchctl bootstrap system ${dest}`;
   } finally {
     unlinkSync(tmp);
   }
 
-  console.log(`[launchdaemon] ${PLIST_NAME} installed and loaded — will auto-start at boot`);
+  console.log(`[launchdaemon] ${name} installed — auto-starts Lima k3s at boot`);
+}
+
+async function installColima(): Promise<void> {
+  const name = "com.joeyguerra.colima";
+  const agentsDir = join(homedir(), "Library", "LaunchAgents");
+  const dest = join(agentsDir, `${name}.plist`);
+  console.log(`[launchdaemon] Installing ${name}...`);
+
+  writeFileSync(dest, COLIMA_PLIST, "utf8");
+
+  await Bun.$`launchctl bootout gui/${process.getuid!()}/${name}`.nothrow();
+  await Bun.$`launchctl bootstrap gui/${process.getuid!()} ${dest}`;
+
+  console.log(`[launchdaemon] ${name} installed — auto-starts Colima at login`);
 }

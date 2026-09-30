@@ -1,0 +1,158 @@
+import { $ } from 'bun'
+import { writeFileSync } from 'fs'
+import { join } from 'path'
+import { tmpdir } from 'os'
+
+const GITOPS_REPO_URL    = process.env.GITOPS_REPO_URL!
+const GITOPS_REPO_BRANCH = process.env.GITOPS_REPO_BRANCH ?? 'main'
+const GITOPS_REPO_DIR    = process.env.GITOPS_REPO_DIR ?? '/tmp/gitops'
+const POLL_INTERVAL_MS   = parseInt(process.env.POLL_INTERVAL_MS ?? '30000')
+const CONFIGMAP_NAME     = 'mesh-gitops-state'
+const STATE_NAMESPACE    = process.env.STATE_NAMESPACE ?? 'mesh-system'
+
+if (!GITOPS_REPO_URL) {
+  console.error('GITOPS_REPO_URL is required')
+  process.exit(1)
+}
+
+async function ensureRepo(): Promise<void> {
+  // Check for .git/HEAD (a file) — Bun.file().exists() returns false for directories
+  const gitHead = Bun.file(join(GITOPS_REPO_DIR, '.git', 'HEAD'))
+  if (!(await gitHead.exists())) {
+    console.log(`Cloning ${GITOPS_REPO_URL}`)
+    await $`git clone ${GITOPS_REPO_URL} ${GITOPS_REPO_DIR} --branch ${GITOPS_REPO_BRANCH} --single-branch`
+  }
+}
+
+async function fetchLatest(): Promise<void> {
+  await $`git -C ${GITOPS_REPO_DIR} fetch origin ${GITOPS_REPO_BRANCH}`.quiet()
+}
+
+async function getRemoteSHA(): Promise<string> {
+  return (await $`git -C ${GITOPS_REPO_DIR} rev-parse origin/${GITOPS_REPO_BRANCH}`.text()).trim()
+}
+
+async function getLastAppliedSHA(): Promise<string | null> {
+  try {
+    const sha = await $`kubectl get configmap ${CONFIGMAP_NAME} -n ${STATE_NAMESPACE} -o jsonpath={.data.lastAppliedSHA}`
+      .quiet()
+      .text()
+    return sha.trim() || null
+  } catch {
+    return null
+  }
+}
+
+async function setLastAppliedSHA(sha: string): Promise<void> {
+  const yaml = `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${CONFIGMAP_NAME}
+  namespace: ${STATE_NAMESPACE}
+data:
+  lastAppliedSHA: "${sha}"
+`
+  const tmp = join(tmpdir(), 'mesh-gitops-state.yaml')
+  writeFileSync(tmp, yaml)
+  await $`kubectl apply -f ${tmp}`.quiet()
+}
+
+async function getChangedYamlFiles(fromSHA: string, toSHA: string): Promise<string[]> {
+  // Only apply added or modified yamls; deletions are handled separately
+  const output = await $`git -C ${GITOPS_REPO_DIR} diff --name-only --diff-filter=AM ${fromSHA} ${toSHA}`.text()
+  return output.trim().split('\n').filter(f => f.endsWith('.yaml'))
+}
+
+async function getDeletedYamlFiles(fromSHA: string, toSHA: string): Promise<string[]> {
+  const output = await $`git -C ${GITOPS_REPO_DIR} diff --name-only --diff-filter=D ${fromSHA} ${toSHA}`.text()
+  return output.trim().split('\n').filter(f => f.endsWith('.yaml'))
+}
+
+async function getAllYamlFiles(): Promise<string[]> {
+  // 2>/dev/null so a missing apps/ or infra/ on first clone doesn't throw
+  const output = await $`find ${GITOPS_REPO_DIR}/apps ${GITOPS_REPO_DIR}/infra -name '*.yaml' -type f 2>/dev/null`.text()
+  return output.trim().split('\n').filter(Boolean)
+}
+
+async function applyFile(filePath: string): Promise<void> {
+  const rel = filePath.replace(GITOPS_REPO_DIR + '/', '')
+  console.log(`  apply  ${rel}`)
+  await $`kubectl apply -f ${filePath}`
+}
+
+async function deleteViaOldRevision(repoRelPath: string, fromSHA: string): Promise<void> {
+  console.log(`  delete ${repoRelPath}`)
+  const content = await $`git -C ${GITOPS_REPO_DIR} show ${fromSHA}:${repoRelPath}`.text()
+  const tmp = join(tmpdir(), 'mesh-gitops-delete.yaml')
+  writeFileSync(tmp, content)
+  await $`kubectl delete -f ${tmp} --ignore-not-found`
+}
+
+export async function reconcile(): Promise<void> {
+  await fetchLatest()
+
+  const remoteSHA = await getRemoteSHA()
+  const lastSHA   = await getLastAppliedSHA()
+
+  if (lastSHA === remoteSHA) {
+    console.log(`[${new Date().toISOString()}] up to date @ ${remoteSHA.slice(0, 8)}`)
+    return
+  }
+
+  console.log(`[${new Date().toISOString()}] ${lastSHA?.slice(0, 8) ?? 'initial'} → ${remoteSHA.slice(0, 8)}`)
+
+  if (lastSHA === null) {
+    // First run: apply everything
+    const all = await getAllYamlFiles()
+    console.log(`  first run, applying ${all.length} manifest(s)`)
+    for (const f of all) await applyFile(f)
+  } else {
+    await $`git -C ${GITOPS_REPO_DIR} merge --ff-only origin/${GITOPS_REPO_BRANCH}`.quiet()
+
+    const added   = await getChangedYamlFiles(lastSHA, remoteSHA)
+    const deleted = await getDeletedYamlFiles(lastSHA, remoteSHA)
+
+    if (added.length === 0 && deleted.length === 0) {
+      console.log(`  no manifest changes`)
+    }
+
+    for (const f of added)   await applyFile(join(GITOPS_REPO_DIR, f))
+    for (const f of deleted) await deleteViaOldRevision(f, lastSHA)
+  }
+
+  await setLastAppliedSHA(remoteSHA)
+  console.log(`  done`)
+}
+
+export async function run(): Promise<never> {
+  // mesh serves git over self-signed TLS — skip verification for localhost
+  await $`git config --global http.https://localhost:7979.sslVerify false`.quiet()
+
+  console.log('mesh-gitops-controller')
+  console.log(`  repo:     ${GITOPS_REPO_URL}`)
+  console.log(`  branch:   ${GITOPS_REPO_BRANCH}`)
+  console.log(`  interval: ${POLL_INTERVAL_MS}ms`)
+  console.log()
+
+  while (true) {
+    try {
+      await ensureRepo()
+    } catch (err) {
+      const raw = (err as any)?.stderr
+      const stderr = raw instanceof Uint8Array ? new TextDecoder().decode(raw) : String(raw ?? '')
+      const detail = stderr.trim().split('\n').at(-1) || (err instanceof Error ? err.message : String(err))
+      console.log(`[${new Date().toISOString()}] waiting for repo: ${detail} — retrying in ${POLL_INTERVAL_MS / 1000}s`)
+      await Bun.sleep(POLL_INTERVAL_MS)
+      continue
+    }
+    try {
+      await reconcile()
+    } catch (err) {
+      const raw = (err as any)?.stderr
+      const stderr = (raw instanceof Uint8Array ? new TextDecoder().decode(raw) : String(raw ?? '')).trim()
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error(`[${new Date().toISOString()}] reconcile error: ${stderr || msg}`)
+    }
+    await Bun.sleep(POLL_INTERVAL_MS)
+  }
+}

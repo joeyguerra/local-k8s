@@ -1,5 +1,4 @@
-import { LIMA_INSTANCE, KUBE_CONTEXT } from "../lib/lima.ts";
-import { pullAndImport } from "../lib/docker.ts";
+import { KUBE_CONTEXT } from "../lib/lima.ts";
 import { kubectl } from "../lib/kubectl.ts";
 
 // Embedded at compile time — safe to bundle (no secrets)
@@ -41,15 +40,8 @@ async function setup(): Promise<void> {
     await kc.createSecretLiteral("cloudflared-token", { CF_TOKEN: cfToken });
   }
 
-  // Pull cloudflared image and import into k3s
-  // Image is read from the embedded manifest text
-  const imageMatch = CF_MANIFEST_TEXT.match(/image:\s*(\S+)/);
-  const image = imageMatch?.[1];
-  if (!image) throw new Error("Could not find image in cloudflared-deployment.yml");
-
-  await pullAndImport(image, LIMA_INSTANCE);
-
   // Apply the cloudflared deployment
+  // k3s containerd will pull the public cloudflared image from Docker Hub on pod start.
   console.log("[cf] Applying cloudflared-deployment.yml...");
   const kc2 = kubectl(KUBE_CONTEXT, "default");
   await kc2.apply(CF_MANIFEST_TEXT);
