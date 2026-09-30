@@ -22,7 +22,7 @@ ENV HOME=/home/mesh \
     PATH="/home/mesh/.local/bin:/home/mesh/.bun/bin:$PATH"
 
 # Install mesh (includes CI runner capability — entrypoint leaves it enabled)
-RUN curl -fsSL https://raw.githubusercontent.com/kaizen-hq/mesh/main/install.sh | MESH_REF=v5.4.1 bash
+RUN curl -fsSL https://raw.githubusercontent.com/kaizen-hq/mesh/main/install.sh | MESH_REF=v5.5.0 bash
 
 # Install bun (CI jobs run bun install, bun test, etc.)
 RUN curl -fsSL https://bun.sh/install | bash
