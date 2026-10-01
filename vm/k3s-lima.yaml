@@ -47,10 +47,7 @@ portForwards:
     hostIP: "127.0.0.1"
     guestIP: "0.0.0.0"
     proto: "tcp"
-  # Forward joey-agent mesh NodePort so Mac Mini can peer with it
-  - guestPort: 30797
-    hostPort: 30797
-    proto: "tcp"
+
   # Forward in-cluster registry NodePort for image pushes from the host.
   # Port 5000 is taken by macOS AirPlay; use 5050 instead.
   - guestPort: 30500
