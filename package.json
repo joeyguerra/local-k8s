@@ -12,7 +12,8 @@
     "compile": "bun build --compile ./cli.ts --outfile infra",
     "install:bin": "bun run compile && sudo cp infra /usr/local/bin/infra",
     "runner:push": "./cicd/mesh-ci-runner/deploy.sh",
-    "controller:push": "./cicd/mesh-gitops-controller/deploy.sh"
+    "controller:push": "./cicd/mesh-gitops-controller/deploy.sh",
+    "prune": "kubectl exec -n ci deploy/mesh-ci-runner -c mesh -- docker system prune -af"
   },
   "dependencies": {
     "yaml": "^2.7.1"

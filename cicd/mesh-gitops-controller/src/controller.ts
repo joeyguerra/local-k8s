@@ -101,11 +101,37 @@ export async function reconcile(): Promise<void> {
 
   console.log(`[${new Date().toISOString()}] ${lastSHA?.slice(0, 8) ?? 'initial'} → ${remoteSHA.slice(0, 8)}`)
 
+  let failed = 0
+
+  async function tryApply(f: string): Promise<void> {
+    try {
+      await applyFile(f)
+    } catch (err) {
+      failed++
+      const raw = (err as any)?.stderr
+      const msg = (raw instanceof Uint8Array ? new TextDecoder().decode(raw) : String(raw ?? '')).trim()
+        || (err instanceof Error ? err.message : String(err))
+      console.error(`  error applying ${f.replace(GITOPS_REPO_DIR + '/', '')}:\n${msg}`)
+    }
+  }
+
+  async function tryDelete(repoRelPath: string): Promise<void> {
+    try {
+      await deleteViaOldRevision(repoRelPath, lastSHA!)
+    } catch (err) {
+      failed++
+      const raw = (err as any)?.stderr
+      const msg = (raw instanceof Uint8Array ? new TextDecoder().decode(raw) : String(raw ?? '')).trim()
+        || (err instanceof Error ? err.message : String(err))
+      console.error(`  error deleting ${repoRelPath}:\n${msg}`)
+    }
+  }
+
   if (lastSHA === null) {
     // First run: apply everything
     const all = await getAllYamlFiles()
     console.log(`  first run, applying ${all.length} manifest(s)`)
-    for (const f of all) await applyFile(f)
+    for (const f of all) await tryApply(f)
   } else {
     await $`git -C ${GITOPS_REPO_DIR} merge --ff-only origin/${GITOPS_REPO_BRANCH}`.quiet()
 
@@ -116,12 +142,12 @@ export async function reconcile(): Promise<void> {
       console.log(`  no manifest changes`)
     }
 
-    for (const f of added)   await applyFile(join(GITOPS_REPO_DIR, f))
-    for (const f of deleted) await deleteViaOldRevision(f, lastSHA)
+    for (const f of added)   await tryApply(join(GITOPS_REPO_DIR, f))
+    for (const f of deleted) await tryDelete(f)
   }
 
   await setLastAppliedSHA(remoteSHA)
-  console.log(`  done`)
+  console.log(failed === 0 ? `  done` : `  done with ${failed} error(s)`)
 }
 
 export async function run(): Promise<never> {
